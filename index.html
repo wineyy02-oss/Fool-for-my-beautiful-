@@ -1,0 +1,676 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#02030b">
+<title>A Fool for My Beautifool</title>
+
+<style>
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+html, body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #02030b;
+}
+
+canvas {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+
+#quote {
+    position: fixed;
+    z-index: 2;
+    bottom: 5%;
+    left: 0;
+    width: 100%;
+    padding: 0 12px;
+    text-align: center;
+    color: #ffd5f0;
+    font: italic clamp(16px, 4.5vw, 25px) Georgia, serif;
+    text-shadow: 0 0 7px #ff62c9, 0 0 16px #e52b9d;
+    opacity: 0;
+    animation: appear 2.5s ease forwards;
+    animation-delay: 19s;
+    pointer-events: none;
+}
+
+@keyframes appear {
+    to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    #quote {
+        animation: none;
+        opacity: 1;
+    }
+}
+</style>
+</head>
+
+<body>
+
+<canvas id="flower"></canvas>
+
+<div id="quote">a fool for my "beautifool" mishu</div>
+
+<script>
+(() => {
+"use strict";
+
+const canvas = document.getElementById("flower");
+const ctx = canvas.getContext("2d", {
+    alpha: false,
+    desynchronized: true
+});
+
+if (!ctx) {
+    document.body.innerHTML =
+        "<p style='color:white;text-align:center'>Canvas is not supported.</p>";
+    return;
+}
+
+const TAU = Math.PI * 2;
+const rand = (a, b) => a + Math.random() * (b - a);
+const clamp = (v, a = 0, b = 1) => Math.max(a, Math.min(b, v));
+const smooth = t => {
+    t = clamp(t);
+    return t * t * (3 - 2 * t);
+};
+const ease = t => 1 - Math.pow(1 - clamp(t), 3);
+
+let W = 0, H = 0, S = 1, DPR = 1;
+let cx = 0, baseY = 0;
+let stars = [], dust = [], stem = [], leaves = [];
+let petals = [], rings = [], sparkles = [];
+let start = performance.now();
+let lastFrame = 0;
+let running = true;
+let pageVisible = !document.hidden;
+
+const DURATION = 26000;
+
+// ---------------------------------
+// RESIZE: LIMIT MOBILE PIXEL COST
+// ---------------------------------
+
+function resize() {
+    W = innerWidth;
+    H = innerHeight;
+
+    // Lower resolution reduces GPU workload on phones.
+    DPR = Math.min(devicePixelRatio || 1, 1.25);
+
+    canvas.width = Math.round(W * DPR);
+    canvas.height = Math.round(H * DPR);
+
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+    S = Math.min(W / 430, H / 760);
+    cx = W / 2;
+    baseY = H * 0.83;
+
+    makeBackground();
+    makeStem();
+    makeLeaves();
+    makeFlower();
+    makeRings();
+    makeSparkles();
+}
+
+function dot(x, y, r, color, alpha = 1) {
+    if (alpha <= 0 || r <= 0) return;
+
+    ctx.globalAlpha = clamp(alpha);
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, TAU);
+    ctx.fill();
+}
+
+function glowDot(x, y, r, color, alpha = 1) {
+    // Avoid shadowBlur on every particle: this is much faster on mobile.
+    dot(x, y, r, color, alpha);
+}
+
+// ---------------------------------
+// BACKGROUND
+// ---------------------------------
+
+function makeBackground() {
+    stars = [];
+    dust = [];
+
+    const starCount = Math.min(
+        100,
+        Math.floor(W * H / 5500)
+    );
+
+    const dustCount = Math.min(
+        45,
+        Math.floor(W * H / 14000)
+    );
+
+    for (let i = 0; i < starCount; i++) {
+        stars.push({
+            x: rand(0, W),
+            y: rand(0, H),
+            r: rand(0.35, 1.0),
+            phase: rand(0, TAU),
+            speed: rand(0.4, 1.5),
+            alpha: rand(0.2, 0.7)
+        });
+    }
+
+    for (let i = 0; i < dustCount; i++) {
+        dust.push({
+            x: rand(0, W),
+            y: rand(0, H),
+            r: rand(0.5, 1.1),
+            speed: rand(5, 16),
+            phase: rand(0, TAU),
+            alpha: rand(0.15, 0.5),
+            color: Math.random() < 0.5
+                ? "#a69aff" : "#718dff"
+        });
+    }
+}
+
+function background(t) {
+    const g = ctx.createRadialGradient(
+        cx, H * 0.66, 5,
+        cx, H * 0.55, Math.max(W, H) * 0.9
+    );
+
+    g.addColorStop(0, "#111638");
+    g.addColorStop(0.35, "#080c25");
+    g.addColorStop(0.75, "#030614");
+    g.addColorStop(1, "#010209");
+
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+
+    for (const p of stars) {
+        const twinkle =
+            0.55 + 0.45 * Math.sin(t * p.speed + p.phase);
+
+        dot(p.x, p.y, p.r, "#a9b8ff", p.alpha * twinkle);
+    }
+
+    for (const p of dust) {
+        const y = ((p.y - t * p.speed) % H + H) % H;
+        const x = p.x + Math.sin(t * 0.4 + p.phase) * 8;
+
+        dot(
+            x, y, p.r, p.color,
+            p.alpha * (0.65 + 0.35 * Math.sin(t + p.phase))
+        );
+    }
+}
+
+// ---------------------------------
+// STEM
+// ---------------------------------
+
+function stemPoint(u) {
+    return {
+        x: cx + Math.sin(u * Math.PI) * 5 * S,
+        y: baseY - u * 280 * S
+    };
+}
+
+function makeStem() {
+    stem = [];
+
+    for (let i = 0; i < 600; i++) {
+        const u = Math.random();
+        const p = stemPoint(u);
+
+        stem.push({
+            x: p.x + rand(-1.5, 1.5) * S,
+            y: p.y,
+            u,
+            r: rand(0.45, 1.1) * S,
+            color: Math.random() < 0.5
+                ? "#8cffad" : "#47d9a3",
+            a: rand(0.5, 1)
+        });
+    }
+}
+
+function drawStem(progress, t) {
+    const growth = smooth(progress);
+
+    ctx.save();
+    ctx.strokeStyle = "#42ffb1";
+    ctx.globalAlpha = growth;
+    ctx.lineWidth = 1.5 * S;
+
+    ctx.beginPath();
+    const first = stemPoint(0);
+    const last = stemPoint(growth);
+
+    ctx.moveTo(first.x, first.y);
+    ctx.quadraticCurveTo(
+        cx + 5 * S,
+        baseY - growth * 130 * S,
+        last.x, last.y
+    );
+    ctx.stroke();
+    ctx.restore();
+
+    for (const p of stem) {
+        if (p.u > growth) continue;
+
+        const sway = Math.sin(t + p.u * 3) * S * p.u;
+
+        dot(p.x + sway, p.y, p.r, p.color, p.a);
+    }
+}
+
+// ---------------------------------
+// LEAVES
+// ---------------------------------
+
+function makeLeaves() {
+    leaves = [];
+
+    for (let level = 0; level < 2; level++) {
+        for (const side of [-1, 1]) {
+            for (let i = 0; i < 240; i++) {
+                const u = Math.random();
+                const b = stemPoint(level === 0 ? 0.25 : 0.52);
+
+                const len = (level === 0 ? 78 : 62) * S;
+                const wid = (level === 0 ? 18 : 15) * S;
+
+                leaves.push({
+                    x: b.x + side * len * u,
+                    y: b.y - Math.sin(u * Math.PI) * wid,
+                    u, side, level,
+                    r: rand(0.4, 1) * S,
+                    a: rand(0.45, 1),
+                    color: Math.random() < 0.5
+                        ? "#91ffba" : "#49dca2"
+                });
+            }
+        }
+    }
+}
+
+function drawLeaves(progress, t) {
+    for (const p of leaves) {
+        const startAt = p.level === 0 ? 0.15 : 0.45;
+        const local = smooth((progress - startAt) / 0.3);
+
+        if (p.u > local) continue;
+
+        const sway = Math.sin(t * 0.7 + p.u * 3) * S;
+
+        dot(
+            p.x + sway, p.y, p.r,
+            p.color, p.a * local
+        );
+    }
+}
+
+// ---------------------------------
+// FLOWER
+// ---------------------------------
+
+const petalDefs = [
+    { angle: -1.2, length: 110, width: 34, delay: 0.1 },
+    { angle:  1.2, length: 110, width: 34, delay: 0.13 },
+    { angle: -0.7, length: 130, width: 40, delay: 0.2 },
+    { angle:  0.7, length: 130, width: 40, delay: 0.23 },
+    { angle: -0.2, length: 140, width: 38, delay: 0.3 },
+    { angle:  0.2, length: 140, width: 38, delay: 0.33 }
+];
+
+function makeFlower() {
+    petals = [];
+
+    for (let k = 0; k < petalDefs.length; k++) {
+        for (let i = 0; i < 350; i++) {
+            const u = Math.random();
+            const v = rand(-1, 1);
+
+            let color;
+
+            if (u < 0.16) {
+                color = Math.random() < 0.5
+                    ? "#fff6b0" : "#ffd48a";
+            } else if (Math.abs(v) > 0.8) {
+                color = Math.random() < 0.5
+                    ? "#ffc0f5" : "#ffe1ff";
+            } else if (u > 0.68) {
+                color = Math.random() < 0.5
+                    ? "#d96cdd" : "#a64cc9";
+            } else {
+                color = Math.random() < 0.5
+                    ? "#ff8de7" : "#e05ad1";
+            }
+
+            petals.push({
+                k, u, v,
+                r: rand(0.45, 1.15) * S,
+                a: rand(0.55, 1),
+                color,
+                phase: rand(0, TAU)
+            });
+        }
+    }
+}
+
+function petalPosition(def, u, v, bloom) {
+    const base = stemPoint(1);
+
+    const angle = def.angle * (0.1 + 0.9 * ease(bloom));
+    const len = def.length * S;
+    const width = def.width * S *
+        (0.08 + 0.92 * ease(bloom)) *
+        Math.pow(Math.sin(u * Math.PI), 0.8);
+
+    const distance = u * len * (0.55 + 0.45 * bloom);
+
+    const dx = Math.sin(angle);
+    const dy = -Math.cos(angle);
+    const nx = Math.cos(angle);
+    const ny = Math.sin(angle);
+
+    const curl = Math.sin(u * Math.PI) * 10 * S * bloom;
+
+    return {
+        x: base.x + dx * distance + nx * v * width + dx * curl,
+        y: base.y + dy * distance + ny * v * width +
+            u * u * 10 * S * bloom
+    };
+}
+
+function drawFlower(progress, t) {
+    if (progress <= 0) return;
+
+    const bloom = smooth((progress - 0.28) / 0.72);
+    const base = stemPoint(1);
+
+    // Soft flower aura, drawn once per frame.
+    const aura = ctx.createRadialGradient(
+        base.x, base.y, 0,
+        base.x, base.y, 85 * S
+    );
+
+    aura.addColorStop(0, `rgba(255,110,220,${0.12 * progress})`);
+    aura.addColorStop(1, "rgba(255,70,200,0)");
+
+    ctx.fillStyle = aura;
+    ctx.fillRect(
+        base.x - 90 * S,
+        base.y - 100 * S,
+        180 * S,
+        200 * S
+    );
+
+    for (const p of petals) {
+        const def = petalDefs[p.k];
+
+        const appear = clamp((progress - def.delay) / 0.32);
+        if (appear <= 0) continue;
+
+        const pos = petalPosition(def, p.u, p.v, bloom);
+
+        const budY = base.y - p.u * 75 * S * progress;
+
+        const x = base.x + (pos.x - base.x) * appear;
+        const y = budY + (pos.y - budY) * appear;
+
+        const twinkle = 0.85 + 0.15 * Math.sin(t * 2 + p.phase);
+
+        dot(x, y, p.r, p.color, p.a * appear * twinkle);
+    }
+
+    // Warm glowing center.
+    if (bloom > 0.1) {
+        const r = 16 * S;
+        const center = ctx.createRadialGradient(
+            base.x, base.y, 0,
+            base.x, base.y, r * 2
+        );
+
+        center.addColorStop(0, `rgba(255,246,180,${0.8 * bloom})`);
+        center.addColorStop(0.4, `rgba(255,150,200,${0.4 * bloom})`);
+        center.addColorStop(1, "rgba(255,100,200,0)");
+
+        ctx.fillStyle = center;
+        ctx.beginPath();
+        ctx.arc(base.x, base.y, r * 2, 0, TAU);
+        ctx.fill();
+
+        drawStamens(bloom, t, base);
+    }
+}
+
+function drawStamens(bloom, t, base) {
+    ctx.save();
+
+    ctx.strokeStyle = `rgba(255,179,110,${0.7 * bloom})`;
+    ctx.lineWidth = 1 * S;
+
+    for (let i = -2; i <= 2; i++) {
+        const x = base.x + i * 14 * S;
+        const y = base.y - (38 + (2 - Math.abs(i)) * 7) * S;
+
+        ctx.beginPath();
+        ctx.moveTo(base.x, base.y);
+        ctx.quadraticCurveTo(
+            base.x + i * 6 * S,
+            base.y - 24 * S,
+            x, y
+        );
+        ctx.stroke();
+
+        dot(x, y, 1.7 * S, "#ffb64c",
+            bloom * (0.8 + 0.2 * Math.sin(t * 3 + i)));
+    }
+
+    ctx.restore();
+}
+
+// ---------------------------------
+// PURPLE MAGIC RINGS
+// ---------------------------------
+
+function makeRings() {
+    rings = [];
+
+    for (let ring = 0; ring < 3; ring++) {
+        for (let i = 0; i < 130; i++) {
+            rings.push({
+                ring,
+                angle: rand(0, TAU),
+                r: rand(0.4, 0.9) * S,
+                a: rand(0.2, 0.8),
+                phase: rand(0, TAU),
+                color: Math.random() < 0.5
+                    ? "#9c83ff" : "#c5a4ff"
+            });
+        }
+    }
+}
+
+function drawRings(t, progress) {
+    if (progress <= 0) return;
+
+    const centerY = baseY - 220 * S;
+
+    const defs = [
+        { rx: 170, ry: 210, rot: -0.28, speed: 0.11 },
+        { rx: 190, ry: 140, rot: 0.58, speed: -0.14 },
+        { rx: 145, ry: 190, rot: 0.9, speed: 0.08 }
+    ];
+
+    ctx.save();
+    ctx.globalAlpha = smooth(progress);
+
+    for (let i = 0; i < defs.length; i++) {
+        const d = defs[i];
+
+        ctx.save();
+        ctx.translate(cx, centerY);
+        ctx.rotate(d.rot + t * d.speed);
+
+        ctx.beginPath();
+        ctx.ellipse(
+            0, 0, d.rx * S, d.ry * S,
+            0, 0, TAU
+        );
+
+        ctx.strokeStyle = "rgba(145,120,255,0.2)";
+        ctx.lineWidth = 0.7 * S;
+        ctx.stroke();
+
+        ctx.restore();
+    }
+
+    for (const p of rings) {
+        const d = defs[p.ring];
+        const angle = p.angle + t * d.speed * 2.5;
+
+        const x = Math.cos(angle) * d.rx * S;
+        const y = Math.sin(angle) * d.ry * S;
+
+        const rot = d.rot + t * d.speed;
+        const px = cx + x * Math.cos(rot) - y * Math.sin(rot);
+        const py = centerY + x * Math.sin(rot) + y * Math.cos(rot);
+
+        dot(
+            px, py, p.r, p.color,
+            p.a * (0.65 + 0.35 * Math.sin(t * 2 + p.phase))
+        );
+    }
+
+    ctx.restore();
+}
+
+// ---------------------------------
+// SPARKLES
+// ---------------------------------
+
+function makeSparkles() {
+    sparkles = [];
+
+    for (let i = 0; i < 35; i++) {
+        sparkles.push({
+            angle: rand(0, TAU),
+            distance: rand(45, 170),
+            phase: rand(0, TAU),
+            r: rand(0.5, 1.1) * S,
+            a: rand(0.2, 0.8)
+        });
+    }
+}
+
+function drawSparkles(t, progress) {
+    if (progress <= 0) return;
+
+    const base = stemPoint(1);
+
+    for (const p of sparkles) {
+        const a = p.angle + t * 0.09;
+        const x = base.x + Math.cos(a) * p.distance * S;
+        const y = base.y - 25 * S +
+            Math.sin(a) * p.distance * S * 0.65;
+
+        const twinkle = Math.max(
+            0,
+            Math.sin(t * 2 + p.phase)
+        );
+
+        dot(
+            x, y, p.r, "#e5b8ff",
+            p.a * smooth(progress) * twinkle
+        );
+    }
+}
+
+// ---------------------------------
+// ANIMATION LOOP
+// ---------------------------------
+
+function render(now) {
+    if (!running || !pageVisible) return;
+
+    // Limit rendering to around 30 FPS on mobile.
+    if (now - lastFrame < 32) {
+        requestAnimationFrame(render);
+        return;
+    }
+
+    lastFrame = now;
+
+    const elapsed = (now - start) % DURATION;
+    const t = elapsed / 1000;
+
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = "source-over";
+    ctx.shadowBlur = 0;
+
+    background(t);
+
+    const stemProgress = clamp((elapsed - 1000) / 4500);
+    const leafProgress = clamp((elapsed - 2500) / 5500);
+    const budProgress = clamp((elapsed - 7000) / 5000);
+    const flowerProgress = clamp((elapsed - 9000) / 13000);
+    const ringProgress = clamp((elapsed - 3500) / 6500);
+    const sparkleProgress = clamp((elapsed - 10000) / 9000);
+
+    drawRings(t, ringProgress);
+
+    drawStem(stemProgress, t);
+    drawLeaves(leafProgress, t);
+
+    drawFlower(
+        Math.max(budProgress * 0.28, flowerProgress),
+        t
+    );
+
+    drawSparkles(t, sparkleProgress);
+
+    requestAnimationFrame(render);
+}
+
+function startAnimation() {
+    if (running && pageVisible) {
+        lastFrame = 0;
+        requestAnimationFrame(render);
+    }
+}
+
+document.addEventListener("visibilitychange", () => {
+    pageVisible = !document.hidden;
+
+    if (pageVisible) {
+        start = performance.now();
+        startAnimation();
+    }
+});
+
+window.addEventListener("resize", resize);
+
+resize();
+startAnimation();
+
+})();
+</script>
+
+</body>
+</html>
